@@ -1,0 +1,8 @@
+# kennwoerter nicht ins git
+.env
+
+# private schluessel
+pki/**/*.key
+
+# geraete ordner hat certs.h mit token
+pki/geraete/
