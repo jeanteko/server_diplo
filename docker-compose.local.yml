@@ -1,0 +1,81 @@
+services:
+  db:
+    image: timescale/timescaledb:2.17.2-pg16 # feste version
+    container_name: akku-db
+    restart: unless-stopped #nach neustart pc wieder starten
+    environment:
+      POSTGRES_DB: akku # name datenbank
+      POSTGRES_USER: akku_admin
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD} # aus .env
+      DB_INGEST_PASSWORD: ${DB_INGEST_PASSWORD} #fuer 02-rollen.sh
+      DB_GRAFANA_PASSWORD: ${DB_GRAFANA_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data # daten bleiben
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro # tabellen
+      - ./db/02-rollen.sh:/docker-entrypoint-initdb.d/02-rollen.sh:ro #rollen
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akku_admin -d akku"] # db bereit?
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [backend] # kein port nach aussen
+
+  ingest:
+    build: ./ingest # image aus eigener dockerfile
+    container_name: akku-ingest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://akku_ingest:${DB_INGEST_PASSWORD}@db:5432/akku #rolle akku_ingest
+    depends_on:
+      db:
+        condition: service_healthy # erst wenn db bereit
+    networks: [backend]
+
+  grafana:
+    image: grafana/grafana:11.3.0 # feste version
+    container_name: akku-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD} #aus .env
+      GF_AUTH_ANONYMOUS_ENABLED: "false" # keine anonyme anmeldung
+      GF_USERS_ALLOW_SIGN_UP: "false" #keine neuen benutzer
+      DB_GRAFANA_PASSWORD: ${DB_GRAFANA_PASSWORD} # fuer timescaledb.yml
+    volumes:
+      - grafana-data:/var/lib/grafana # dashboards bleiben
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro #datenquelle
+    ports:
+      - "127.0.0.1:3000:3000" # nur am server pc
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: akku-caddy
+    restart: unless-stopped
+    ports:
+      - "443:443" # dashboard
+      - "8443:8443" #geraete
+    volumes:
+      - ./caddy/Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./pki/ca/ca.crt:/etc/caddy/ca.crt:ro # zum pruefen der geraete
+      - ./pki/server/server.crt:/etc/caddy/server.crt:ro
+      - ./pki/server/server.key:/etc/caddy/server.key:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - grafana
+      - ingest
+    networks: [backend]
+
+volumes:
+  db-data:
+  grafana-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  backend: # internes netz
+    driver: bridge

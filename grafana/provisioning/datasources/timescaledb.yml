@@ -1,0 +1,17 @@
+apiVersion: 1
+datasources:
+  - name: Akku-DB # name in grafana
+    type: postgres
+    uid: akku-db
+    access: proxy
+    url: db:5432 #container db im internen netz
+    database: akku
+    user: grafana_ro # nur lesen
+    secureJsonData:
+      password: ${DB_GRAFANA_PASSWORD} # aus .env
+    jsonData:
+      sslmode: disable #bleibt im docker netz
+      postgresVersion: 1600
+      timescaledb: true
+      maxOpenConns: 5
+    editable: false # in der oberflaeche nicht aenderbar
